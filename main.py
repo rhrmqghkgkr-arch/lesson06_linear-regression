@@ -55,6 +55,16 @@ n_years = len(yearly)
 start_year = int(yearly["연도"].min())
 end_year = int(yearly["연도"].max())
 
+# 최근 20년(끝 연도 기준)만으로 구한 기울기
+RECENT_YEARS = 20
+recent = yearly[yearly["연도"] > end_year - RECENT_YEARS]
+if len(recent) >= 2:
+    rx = recent["연도"].to_numpy(dtype=float)
+    ry = recent["연평균기온"].to_numpy(dtype=float)
+    r_slope, r_intercept = np.polyfit(rx, ry, 1)
+else:
+    r_slope = r_intercept = None
+
 # ---- 사용한 데이터 정보 ----
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("직선을 만든 해의 개수", f"{n_years}개")
@@ -65,6 +75,55 @@ st.caption(
     f"{LAST_YEAR}년 이후 데이터와 관측일이 {MIN_DAYS}일 미만인 해"
     f"({total_years - n_years}개 연도)는 제외했습니다."
 )
+
+st.divider()
+
+# ---- 기울기: 100년에 몇 도 오르는가 ----
+st.subheader("📈 100년에 몇 도 오를까?")
+
+
+def slope_card(title, sub, value):
+    if value is None:
+        body = "<div style='font-size:2rem; opacity:0.6;'>계산 불가</div>"
+    else:
+        body = (
+            f"<div style='font-size:3.8rem; font-weight:800; line-height:1.2;'>"
+            f"{value * 100:+.2f} °C</div>"
+            f"<div style='opacity:0.75;'>100년당 (1년에 {value:+.4f} °C)</div>"
+        )
+    return (
+        "<div style='text-align:center; padding:1rem; border:1px solid rgba(128,128,128,0.4);"
+        " border-radius:12px;'>"
+        f"<div style='font-size:1.2rem; font-weight:700;'>{title}</div>"
+        f"<div style='font-size:0.9rem; opacity:0.7; margin-bottom:0.3rem;'>{sub}</div>"
+        f"{body}</div>"
+    )
+
+
+col_all, col_recent = st.columns(2)
+with col_all:
+    st.markdown(
+        slope_card("전체 기간", f"{start_year}~{end_year}년 · {n_years}개 연도", slope),
+        unsafe_allow_html=True,
+    )
+with col_recent:
+    if r_slope is not None:
+        rs, re_ = int(recent["연도"].min()), int(recent["연도"].max())
+        sub = f"최근 20년 {rs}~{re_}년 · {len(recent)}개 연도"
+    else:
+        sub = "최근 20년"
+    st.markdown(slope_card("최근 20년", sub, r_slope), unsafe_allow_html=True)
+
+if r_slope is not None:
+    diff = (r_slope - slope) * 100
+    ratio_txt = f" (전체 기간의 약 {r_slope / slope:.1f}배)" if slope > 0 and r_slope > 0 else ""
+    st.markdown(
+        f"최근 20년의 상승 속도는 전체 기간보다 100년당 **{diff:+.2f} °C** 차이가 나요{ratio_txt}."
+    )
+    st.caption(
+        "※ 최근 20년은 데이터가 적어서 연도별 들쭉날쭉한 변동의 영향을 크게 받아요. "
+        "그래서 기울기가 불안정할 수 있습니다."
+    )
 
 st.divider()
 
@@ -110,6 +169,18 @@ fig.add_trace(
         hoverinfo="skip",
     )
 )
+if r_slope is not None:
+    rline_x = np.array([recent["연도"].min(), recent["연도"].max()], dtype=float)
+    fig.add_trace(
+        go.Scatter(
+            x=rline_x,
+            y=r_slope * rline_x + r_intercept,
+            mode="lines",
+            name="최근 20년 직선",
+            line=dict(width=3, color="green", dash="dash"),
+            hoverinfo="skip",
+        )
+    )
 fig.add_trace(
     go.Scatter(
         x=[year],
@@ -132,8 +203,9 @@ st.plotly_chart(fig, use_container_width=True)
 
 st.markdown(
     f"**회귀식:** 평균기온 = {slope:.4f} × 연도 + ({intercept:.2f})  \n"
-    f"→ 10년마다 약 **{slope * 10:+.2f} °C** 변화"
+    f"→ 100년마다 약 **{slope * 100:+.2f} °C** 변화 (전체 기간 기준)"
 )
+st.caption("위의 예상 기온은 전체 기간으로 구한 직선(빨간 선)을 기준으로 합니다.")
 
 with st.expander("연도별 평균기온 데이터 보기"):
     st.dataframe(
